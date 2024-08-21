@@ -1,6 +1,11 @@
 #include "mergeModel.h"
 #include <QSqlQuery>
 #include <QSqlError>
+#include <QIODevice>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QFile>
 #include <QSize>
 
 mergeModel::mergeModel(QObject *parent):QAbstractTableModel(parent)
@@ -12,8 +17,8 @@ mergeModel::mergeModel(QObject *parent):QAbstractTableModel(parent)
         qDebug() << "Falied to open database!"<<m_db.lastError().text() ;
     }
 
-    initTable("cellTable");
-    loadFromDb("cellTable");
+    // initTable("cellTable");
+    // loadFromDb("cellTable");
 }
 
 int mergeModel::rowCount(const QModelIndex &parent) const
@@ -179,6 +184,8 @@ bool mergeModel::loadFromDb(const QString &tableName)
         return false;
     }
 
+    beginResetModel();
+
     while(query.next())
     {
         Cell cell;
@@ -190,12 +197,90 @@ bool mergeModel::loadFromDb(const QString &tableName)
         m_cells.append(cell);
     }
 
-    emit dataChanged(index(0,0),index(rowCount()-1,columnCount()-1));
+    endResetModel();
+    this->printTable();
+
+    // emit dataChanged(index(0,0),index(this->rowCount()-1,this->columnCount()-1));
     qDebug() << "Load from database successful";
     return true;
 }
 
+void mergeModel::savetoJson(const QString &fileName)
+{
+    QJsonArray cellArray;
 
+    for (const Cell &cell : m_cells) {
+        QJsonObject cellObject;
+        cellObject["row"] = cell.row;
+        cellObject["col"] = cell.col;
+        cellObject["rowSpan"] = cell.rowSpan;
+        cellObject["colSpan"] = cell.colSpan;
+        cellObject["val"] = cell.val;
+
+        cellArray.append(cellObject);
+    }
+
+    QJsonObject tableObject;
+    tableObject["cells"] = cellArray;
+
+    QJsonDocument doc(tableObject);
+
+    QFile file(fileName);
+    if (!file.open(QIODevice::WriteOnly)) {
+        qWarning("Couldn't open file for writing.");
+        return;
+    }
+
+    file.write(doc.toJson());
+    file.close();
+}
+
+void mergeModel::loadFromJson(const QString &fileName)
+{
+    QFile file(fileName);
+    if(!file.open(QIODevice::ReadOnly))
+    {
+        qDebug() << "Open json file failed!";
+        return;
+    }
+
+    QByteArray data = file.readAll();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonObject tableObj = doc.object();
+
+    beginResetModel();
+
+    auto cellArray = tableObj["cells"].toArray();
+    m_cells.clear();
+
+    for(auto &&element:cellArray)
+    {
+        auto obj = element.toObject();
+        Cell cell;
+        cell.row = obj["row"].toInt();
+        cell.col = obj["col"].toInt();
+        cell.val = obj["val"].toString();
+        cell.colSpan = obj["colSpan"].toInt();
+        cell.rowSpan = obj["rowSpan"].toInt();
+        m_cells.append(cell);
+    }
+
+    endResetModel();
+
+    file.close();
+
+}
+
+void mergeModel::expandAll()
+{
+    for(auto &&cell:m_cells)
+    {
+        if(cell.colSpan > 1 || cell.rowSpan > 1)
+            emit mergeRequest(cell.row,cell.col,cell.rowSpan,cell.colSpan);
+    }
+
+    emit dataChanged(index(0,0),index(rowCount()-1,columnCount()-1));
+}
 
 void mergeModel::initTable(const QString &tableName)
 {
@@ -274,12 +359,18 @@ Cell *mergeModel::find(int row, int col)
 
 void mergeModel::increaseCol(int col, int rowBegin, int totalRow)
 {
-    for(int curRow = rowBegin;curRow < totalRow;curRow++)
+    //从当前列最后一个递增起
+    for(int curRow = totalRow -1 ; curRow>=rowBegin;)
     {
         auto cell = this->find(curRow,col);
         if(!cell)
+        {
+            curRow--;
             continue;
+        }
         cell->row++;
+        curRow--;
+
         qDebug() << "increase Cell:";
         print(*cell);
     }
@@ -287,13 +378,17 @@ void mergeModel::increaseCol(int col, int rowBegin, int totalRow)
 
 void mergeModel::increaseRow(int row, int colBegin, int totalColumn)
 {
-    for(int curCol = colBegin; curCol < totalColumn; curCol++)
+    for(int curCol = totalColumn -1; curCol >= colBegin;)
     {
         auto cell = this->find(row,curCol);
         if(!cell)
+        {
+            curCol--;
             continue;
+        }
         cell->col++;
-        qDebug() << "increase Cell:";
+        curCol--;
+        qDebug().nospace() << "increase Cell:";
         print(*cell);
     }
 }
@@ -301,6 +396,83 @@ void mergeModel::increaseRow(int row, int colBegin, int totalColumn)
 void mergeModel::print(Cell cell)
 {
     qDebug() << cell.row << cell.col << cell.rowSpan<<cell.colSpan <<cell.val;
+}
+
+void mergeModel::printTable()
+{
+    sortTable();
+    qDebug().noquote().nospace() << QString("Table Contents total %1:").arg(m_cells.size());
+    for (const Cell &cell : m_cells) {
+        qDebug().noquote() << "Cell at (" << cell.row << ", " << cell.col << "): "
+                                     << "Value = " << cell.val << ", "
+                                     << "RowSpan = " << cell.rowSpan << ", "
+                                     << "ColSpan = " << cell.colSpan;
+    }
+}
+
+void mergeModel::sortTable()
+{
+    std::sort(m_cells.begin(),m_cells.end(),[](const Cell &a, const Cell &b){
+        if(a.row != b.row)
+            return a.row < b.row;
+        else
+            return a.col < b.col;
+    });
+}
+
+void mergeModel::appendAndIncreseRow(int row, int col, int totalCol, int rowSpan, int colSpan, const QString &val)
+{
+    Cell cell;
+    cell.row = row;
+    cell.col = col;
+    cell.colSpan = colSpan;
+    cell.rowSpan = rowSpan;
+    cell.val = val;
+
+    qDebug().nospace()<<"append new Cell:";
+    print(cell);
+
+    increaseRow(row,col,totalCol);
+    m_cells.append(cell);
+}
+
+void mergeModel::appendAndIncreaseCol(int row, int col, int totalRow, int rowSpan, int colSpan, const QString &val)
+{
+    Cell cell;
+    cell.row = row;
+    cell.col = col;
+    cell.colSpan = colSpan;
+    cell.rowSpan = rowSpan;
+    cell.val = val;
+
+    qDebug().nospace()<<"append new Cell:";
+    print(cell);
+
+    increaseCol(col,row,totalRow);
+    m_cells.append(cell);
+}
+
+Cell *mergeModel::findSpanOnCol(int row, int col)
+{
+    for(int curRow = 0;curRow < row;curRow++)
+    {
+        auto cell = find(curRow,col);
+        if(cell && cell->rowSpan+cell->row > row)
+            return cell;
+    }
+
+    return nullptr;
+}
+
+Cell *mergeModel::findSpanOnRow(int row, int col)
+{
+    for(int curCol=0;curCol < col;curCol++)
+    {
+        auto cell = find(row,curCol);
+        if(cell && cell->colSpan+cell->col > col)
+            return cell;
+    }
+    return nullptr;
 }
 
 void mergeModel::removeRow_(int row)
@@ -330,6 +502,7 @@ void mergeModel::removeRow_(int row)
         }
     }
     endRemoveRows();
+    printTable();
 }
 
 void mergeModel::removeColumn_(int col)
@@ -361,6 +534,8 @@ void mergeModel::removeColumn_(int col)
     }
 
     endRemoveColumns();
+
+    printTable();
 }
 
 void mergeModel::insertRow_(int row)
@@ -370,52 +545,44 @@ void mergeModel::insertRow_(int row)
     beginInsertRows(QModelIndex(),row,row);
     int columnCount = this->columnCount();
     int rowCount = this->rowCount();
+
     for(int col=0;col < columnCount;)
     {
+        assert(col >= 0);
+        Cell *spanCell = nullptr;
+        spanCell = findSpanOnCol(row,col);
+
+        if(spanCell)
+        {
+            spanCell->rowSpan++;
+            //expand (col to col+spanCell->colSpan
+            for(int spanCol = col;spanCol < col+spanCell->colSpan;spanCol++)
+                increaseCol(spanCol,row,rowCount);
+
+            col+=spanCell->colSpan;
+            continue;
+        }
+
         //find the cell on the top of current Cell
         auto it = std::find_if(m_cells.begin(),m_cells.end(),[row,col](const Cell& cell)
         {
-            qDebug() << "find cell pos: "<<row<<col;
             return cell.row == row -1 && cell.col == col;
         });
 
         if(it != m_cells.end())
         {
-            //expand the top Cell
-            if(it->row+it->rowSpan > row)
-            {
-                it->rowSpan++;
-            }else
-            {
-                //a new cell
-                //need to append the below cell row
-                Cell newCell;
-                newCell.row = row;
-                newCell.col = col;
-                newCell.colSpan = it->colSpan;
-                newCell.rowSpan = 1;
-                newCell.val = "Cell";
-                qDebug() << "insert: ";
-                print(newCell);
-                increaseCol(col,newCell.row,rowCount);
-                m_cells.append(newCell);
-            }
-            col += it->colSpan;
-            qDebug() << " col += "<<it->colSpan;
+            auto temp = *it;
+            appendAndIncreaseCol(row,col,rowCount,1,it->colSpan);
+            col+=temp.colSpan;
+            assert(temp.colSpan >0);
         }else
         {
-            //insert on first row
-            Cell newCell;
-            newCell.row = row;
-            newCell.col = col;
-            newCell.val = "Cell";
-            increaseCol(col,newCell.row,rowCount);
-            m_cells.append(newCell);
-            col += 1;
+            appendAndIncreaseCol(row,col,rowCount);
+            col++;
         }
     }
-
     endInsertRows();
+    printTable();
 }
 
 void mergeModel::insertColumn_(int col)
@@ -429,6 +596,18 @@ void mergeModel::insertColumn_(int col)
 
     for(int row = 0; row < rowCount;)
     {
+        Cell *spanCell = nullptr;
+        spanCell = findSpanOnRow(row,col);
+
+        if(spanCell)
+        {
+            spanCell->colSpan++;
+            for(int spanRow = row;spanRow < spanCell->rowSpan+row;spanRow++)
+                increaseRow(spanRow,col,colCount);
+            row+=spanCell->rowSpan;
+            continue;
+        }
+
         auto it = std::find_if(m_cells.begin(),m_cells.end(),[row,col](const Cell& cell)
         {
             return cell.col == col-1 && cell.row == row;
@@ -436,26 +615,44 @@ void mergeModel::insertColumn_(int col)
 
         if(it != m_cells.end())
         {
-            if(it->col+it->colSpan > col)
-            {
-                it->colSpan++;
-            }else
-            {
-                Cell newCell;
-                newCell.row = row;
-                newCell.col = col;
-                newCell.colSpan = 1;
-                newCell.rowSpan = it->rowSpan;
-                newCell.val = "Cell";
-                increaseRow(row,newCell.col,colCount);
-                m_cells.append(newCell);
-            }
-            row += it->rowSpan;
+            auto temp = *it;
+            appendAndIncreseRow(row,col,colCount,it->rowSpan,1);
+            assert(temp.rowSpan>0);
+            row+=temp.rowSpan;
         }else
-            throw std::exception("can not find left cell");
+        {
+            appendAndIncreseRow(row,col,colCount);
+            row++;
+        }
     }
 
     endInsertColumns();
+    printTable();
+}
+
+void mergeModel::split(int splitRow, int splitCol)
+{
+    auto &&cell = find(splitRow,splitCol);
+    emit cancelMerge(splitRow,splitCol);
+
+    // beginResetModel();
+    for(int i = cell->row;i < cell->row+cell->rowSpan;i++)
+    {
+        for(int j =cell->col;j < cell->colSpan + cell->col;j++)
+        {
+            if(i == splitRow  && j == splitCol)
+                continue;
+            Cell newCell;
+            newCell.col = j;
+            newCell.row = i;
+            newCell.val = "Cell";
+            m_cells.append(newCell);
+        }
+    }
+    // endResetModel();
+    emit dataChanged(index(splitRow,splitCol),index(cell->rowSpan-1,cell->colSpan-1));
+    cell->rowSpan = 1;
+    cell->colSpan = 1;
 }
 
 void mergeModel::merge(int top, int left, int width, int height)
@@ -466,25 +663,38 @@ void mergeModel::merge(int top, int left, int width, int height)
         return;
     }
 
-    auto cell = find(top,left);
-    if(!cell)
+    auto curCell = find(top,left);
+    if(!curCell)
         return;
-    cell->colSpan = width;
-    cell->rowSpan = height;
 
     for(int row = top; row < top + height;row++)
     {
-        for(int col = left; col < left + width;col++)
+        for(int col = left; col < left + width;)
         {
             if(row == top && col == left)
+            {
+                auto curCell = find(row,col);
+                col += curCell->colSpan;
                 continue;
+            }
 
-            auto newEnd  =std::remove_if(m_cells.begin(),m_cells.end(),[col,row](const Cell &cell){
-                return cell.col == col && cell.row == row;
-            });
-            m_cells.erase(newEnd,m_cells.end());
+            auto removeCell = find(row,col);
+            if(removeCell)
+            {
+                col += removeCell->colSpan;
+                if(removeCell->colSpan >1 || removeCell->rowSpan > 1)
+                    emit cancelMerge(removeCell->row,removeCell->col);
+                qDebug().nospace() << "remove: ";
+                print(*removeCell);
+                m_cells.removeOne(*removeCell);
+            }else
+                col++;
         }
     }
+
+    curCell->colSpan = width;
+    curCell->rowSpan = height;
+    printTable();
 
     emit dataChanged(index(top,left),index(top+height-1,left+width-1),{Qt::DisplayRole});
 }

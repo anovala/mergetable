@@ -15,10 +15,39 @@ mergeTable::mergeTable(QWidget *parent)
     auto insertRowAction = new QAction("insertRow",this);
     auto removeColAction = new QAction("removeColumn",this);
     auto insertColAction = new QAction("insertColumn",this);
-    auto saveAction = new QAction("save",this);
-    menu.addActions({mergeAction,removeRowAction,insertRowAction,saveAction,removeColAction,insertColAction});
+    auto saveDbAction = new QAction("savetoDb",this);
+    auto saveJsonAction = new QAction("savetoJson",this);
 
-    connect(saveAction,&QAction::triggered,this,[this](){
+    auto splitAction = new QAction("split",this);
+    menu.addActions({mergeAction,removeRowAction,insertRowAction,saveDbAction,
+                     removeColAction,insertColAction,splitAction,saveJsonAction});
+
+    connect(saveJsonAction,&QAction::triggered,this,[this]{
+        m_model->savetoJson("data.json");
+    });
+
+    connect(splitAction,&QAction::triggered,this,[this](){
+        auto selectIndexes = ui->tableView->selectionModel()->selectedIndexes();
+        for(auto &index : selectIndexes)
+        {
+            auto cell = m_model->find(index.row(),index.column());
+            if(cell && (cell->colSpan >1 || cell->rowSpan>1))
+            {
+                m_model->split(cell->row,cell->col);
+                m_model->printTable();
+            }
+        }
+    });
+
+    connect(m_model,&mergeModel::cancelMerge,this,[this](int row, int col){
+        ui->tableView->setSpan(row,col,1,1);
+    });
+
+    connect(m_model,&mergeModel::mergeRequest,this,[this](int row, int col ,int rowSpan, int colSpan){
+        ui->tableView->setSpan(row,col,rowSpan,colSpan);
+    });
+
+    connect(saveDbAction,&QAction::triggered,this,[this](){
         m_model->savetoDb("cellTable");
     });
 
@@ -95,6 +124,11 @@ mergeTable::mergeTable(QWidget *parent)
         }
         m_model->insertRow_(row);
     });
+
+    // m_model->initTable("cellTable");
+    // m_model->loadFromDb("cellTable");
+    m_model->loadFromJson("data.json");
+    m_model->expandAll();
 }
 
 mergeTable::~mergeTable()

@@ -18,6 +18,12 @@ struct Cell{
     int colSpan = 1;
     int row;
     int col;
+
+    bool operator==(const Cell&temp) const
+    {
+        return this->rowSpan == temp.rowSpan && this->colSpan == temp.colSpan &&
+               this->col == temp.col && this->row == temp.row && this->val == temp.val;
+    }
 };
 
 
@@ -35,18 +41,35 @@ public:
 
     bool savetoDb(const QString& tableName);
     bool loadFromDb(const QString& tableName);
+    void savetoJson(const QString &fileName);
+    void loadFromJson(const QString &fileName);
+    void expandAll();
     void initTable(const QString& tableName);
     Cell* find(int row, int col);
     void increaseCol(int col, int rowBegin,int totalRow);
     void increaseRow(int row, int colBegin,int totalColumn);
     void print(Cell cell);
+    void printTable();
+    void sortTable();
+    void appendAndIncreseRow(int row, int col,int totalCol,
+                             int rowSpan = 1,int colSpan = 1,const QString& val = "Cell");
+    void appendAndIncreaseCol(int row, int col, int totalRow,
+                             int rowSpan = 1, int colSpan =1, const QString& val = "Cell");
+
+    Cell* findSpanOnCol(int row,int col);
+    Cell* findSpanOnRow(int row,int col);
 
 public slots:
     void removeRow_(int row);
     void removeColumn_(int col);
     void insertRow_(int row);
     void insertColumn_(int col);
+    void split(int row, int col);
     void merge(int top, int left, int width, int height);
+
+signals:
+    void cancelMerge(int row, int col);
+    void mergeRequest(int row, int col, int rowSpan, int colSpan);
 
 private:
     QList<Cell> m_cells;
