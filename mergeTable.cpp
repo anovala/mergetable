@@ -1,14 +1,38 @@
 #include "mergeTable.h"
 #include "./ui_mergeTable.h"
+#include <QMenuBar>
 
 mergeTable::mergeTable(QWidget *parent)
     : QWidget(parent)
     , ui(new Ui::mergeTable)
     , m_model(new mergeModel(this))
+    , m_delegate(new headerDelegate(this))
 {
     ui->setupUi(this);
     ui->tableView->setModel(m_model);
+    ui->tableView->setItemDelegate(m_delegate);
     ui->tableView->setContextMenuPolicy(Qt::CustomContextMenu);
+
+    createConnection();
+    m_model->initTable("cellTable");
+    m_model->loadFromDb("cellTable");
+    // m_model->loadFromJson("data.json");
+    m_model->restoreTableMergeState(true);
+}
+
+mergeTable::~mergeTable()
+{
+    delete ui;
+}
+
+void mergeTable::showMenu(const QPoint &pos)
+{
+    menu.move(mapToParent(pos));
+    menu.show();
+}
+
+void mergeTable::createConnection()
+{
     connect(ui->tableView,&QWidget::customContextMenuRequested,this,&mergeTable::showMenu);
     auto mergeAction = new QAction("merge",this);
     auto removeRowAction = new QAction("removeRow",this);
@@ -21,6 +45,11 @@ mergeTable::mergeTable(QWidget *parent)
     auto saveJsonAction = new QAction("savetoJson",this);
     auto redoAction = new QAction("redo",this);
     auto undoAction = new QAction("undo",this);
+    auto firstRow = new QAction("First Row");
+    auto firstCol = new QAction("First Column");
+    firstRow->setCheckable(true);
+    firstCol->setCheckable(true);
+
     redoAction->setEnabled(false);
     undoAction->setEnabled(false);
     redoAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_R));
@@ -33,6 +62,25 @@ mergeTable::mergeTable(QWidget *parent)
                      insertColBackAction,splitAction});
     menu.addSeparator();
     menu.addActions({redoAction,undoAction,saveDbAction,saveJsonAction});
+    menu.addSeparator();
+    menu.addActions({firstRow,firstCol});
+
+    connect(firstRow,&QAction::triggered,this,[this](bool b){
+        if(b){
+            m_delegate->setColoredRow(0);
+        }else
+        {
+            m_delegate->removeColoredRow(0);
+        }
+    });
+
+    connect(firstCol, &QAction::triggered,this,[this](bool b){
+        if(b){
+            m_delegate->setColoredCol(0);
+        }else{
+            m_delegate->removeColoredCol(0);
+        }
+    });
 
     connect(m_model,&mergeModel::enableRedo,this,[redoAction](bool b){
         redoAction->setEnabled(b);
@@ -194,19 +242,5 @@ mergeTable::mergeTable(QWidget *parent)
         }
     });
 
-    m_model->initTable("cellTable");
-    m_model->loadFromDb("cellTable");
-    // m_model->loadFromJson("data.json");
-    m_model->restoreTableMergeState(true);
 }
 
-mergeTable::~mergeTable()
-{
-    delete ui;
-}
-
-void mergeTable::showMenu(const QPoint &pos)
-{
-    menu.move(mapToParent(pos));
-    menu.show();
-}

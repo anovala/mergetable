@@ -26,7 +26,6 @@ struct TableState {
     QList<QPair<int,int>> mergedCells;
 };
 
-
 class mergeModel : public QAbstractTableModel{
     Q_OBJECT
 

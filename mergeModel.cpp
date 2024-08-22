@@ -365,7 +365,7 @@ void mergeModel::initTable(const QString &tableName)
 Cell *mergeModel::find(int row, int col)
 {
     auto it =std::find_if(m_state.cells.begin(),m_state.cells.end(),[row,col](const Cell&cell)
-                 {
+    {
         return cell.row == row && cell.col == col;
     });
 
@@ -578,10 +578,6 @@ void mergeModel::removeRow_(int row)
             cell.row--;
         }
 
-        if(cell.row < row && cell.row + cell.rowSpan > row)
-        {
-            cell.rowSpan--;
-        }
     }
     endRemoveRows();
     printTable();
@@ -609,11 +605,6 @@ void mergeModel::removeColumn_(int col)
             }
         }else if(cell.col > col)
             cell.col--;
-
-        if(cell.col < col && cell.col + cell.colSpan > col)
-        {
-            cell.colSpan--;
-        }
     }
 
     endRemoveColumns();
