@@ -84,10 +84,10 @@ bool mergeModel::setData(const QModelIndex &index, const QVariant &value, int ro
 
     if(role == Qt::EditRole)
     {
+        saveCurrentState();
         for(auto &&cell : m_state.cells)
         {
-            if(row >= cell.row && row < cell.row+cell.rowSpan &&
-                col >= cell.col && col < cell.col+cell.colSpan)
+            if(cell.row == row && cell.col == col)
             {
                 cell.val = value.toString();
                 emit dataChanged(index,index,{role});
@@ -339,7 +339,7 @@ void mergeModel::initTable(const QString &tableName)
     QString insertQueryStr = QString("INSERT INTO %1 (value, row, col, rowSpan, colSpan) VALUES (?, ?, ?, ?, ?)").arg(tableName);
     query.prepare(insertQueryStr);
 
-    int gridSize = 4; // Define the size of the grid
+    int gridSize = 6; // Define the size of the grid
     for (int row = 0; row < gridSize; ++row) {
         for (int col = 0; col < gridSize; ++col) {
             query.bindValue(0, "Cell");  // Empty value for now
@@ -419,13 +419,13 @@ void mergeModel::print(Cell cell)
 void mergeModel::printTable()
 {
     sortTable();
-    qDebug().noquote().nospace() << QString("Table Contents total %1:").arg(m_state.cells.size());
     for (const Cell &cell : m_state.cells) {
         qDebug().noquote() << "Cell at (" << cell.row << ", " << cell.col << "): "
                                      << "Value = " << cell.val << ", "
                                      << "RowSpan = " << cell.rowSpan << ", "
                                      << "ColSpan = " << cell.colSpan;
     }
+    qDebug().noquote()<< QString("Table Contents total %1:").arg(m_state.cells.size());
 }
 
 void mergeModel::sortTable()
@@ -741,18 +741,16 @@ void mergeModel::split(int splitRow, int splitCol)
     emit mergeSig(splitRow,splitCol);
     QPair<int,int> temp_p= {splitRow,splitCol};
     m_state.mergedCells.removeAll(temp_p);
+    m_state.cells.removeAll(cell);
 
     qDebug() << "split row range: "<<cell.row << "to"<<cell.row+cell.rowSpan;
     qDebug() << "split col range: "<<cell.col<<"to"<<cell.col+cell.colSpan;
 
-    // beginResetModel();
     for(int i = cell.row;i < cell.row+cell.rowSpan;i++)
     {
         for(int j =cell.col;j < cell.colSpan + cell.col;j++)
         {
             qDebug() << "pos: "<<i<<","<<j;
-            if(i == splitRow  && j == splitCol)
-                continue;
             Cell newCell;
             newCell.col = j;
             newCell.row = i;
@@ -762,10 +760,7 @@ void mergeModel::split(int splitRow, int splitCol)
             print(newCell);
         }
     }
-    // endResetModel();
     emit dataChanged(index(splitRow,splitCol),index(cell.rowSpan-1,cell.colSpan-1));
-    cell.rowSpan = 1;
-    cell.colSpan = 1;
 
     printTable();
 }
