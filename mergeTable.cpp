@@ -12,15 +12,35 @@ mergeTable::mergeTable(QWidget *parent)
     connect(ui->tableView,&QWidget::customContextMenuRequested,this,&mergeTable::showMenu);
     auto mergeAction = new QAction("merge",this);
     auto removeRowAction = new QAction("removeRow",this);
-    auto insertRowAction = new QAction("insertRow",this);
+    auto insertRowFrontAction = new QAction("insertRow_Front",this);
+    auto insertRowBackAction = new QAction("insertRow_Back",this);
     auto removeColAction = new QAction("removeColumn",this);
-    auto insertColAction = new QAction("insertColumn",this);
+    auto insertColFrontAction = new QAction("insertColumn_Front",this);
+    auto insertColBackAction = new QAction("insertColumn_Back",this);
     auto saveDbAction = new QAction("savetoDb",this);
     auto saveJsonAction = new QAction("savetoJson",this);
+    auto redoAction = new QAction("redo",this);
+    auto undoAction = new QAction("undo",this);
+    redoAction->setEnabled(false);
+    undoAction->setEnabled(false);
 
     auto splitAction = new QAction("split",this);
-    menu.addActions({mergeAction,removeRowAction,insertRowAction,saveDbAction,
-                     removeColAction,insertColAction,splitAction,saveJsonAction});
+    menu.addActions({mergeAction,removeRowAction,insertRowFrontAction,
+                    insertRowBackAction,removeColAction,insertColFrontAction,
+                     insertColBackAction,splitAction});
+    menu.addSeparator();
+    menu.addActions({redoAction,undoAction,saveDbAction,saveJsonAction});
+
+    connect(m_model,&mergeModel::enableRedo,this,[redoAction](bool b){
+        redoAction->setEnabled(b);
+    });
+
+    connect(m_model,&mergeModel::enableUndo,this,[undoAction](bool b){
+        undoAction->setEnabled(b);
+    });
+
+    connect(redoAction, &QAction::triggered,m_model,&mergeModel::redo);
+    connect(undoAction,&QAction::triggered,m_model,&mergeModel::undo);
 
     connect(saveJsonAction,&QAction::triggered,this,[this]{
         m_model->savetoJson("data.json");
@@ -34,18 +54,17 @@ mergeTable::mergeTable(QWidget *parent)
             if(cell && (cell->colSpan >1 || cell->rowSpan>1))
             {
                 m_model->split(cell->row,cell->col);
-                m_model->printTable();
             }
         }
     });
 
-    connect(m_model,&mergeModel::cancelMerge,this,[this](int row, int col){
-        ui->tableView->setSpan(row,col,1,1);
-    });
-
-    connect(m_model,&mergeModel::mergeRequest,this,[this](int row, int col ,int rowSpan, int colSpan){
+    connect(m_model,&mergeModel::mergeSig,this,[this](int row, int col, int rowSpan, int colSpan){
         ui->tableView->setSpan(row,col,rowSpan,colSpan);
     });
+
+    // connect(m_model,&mergeModel::mergeRequest,this,[this](int row, int col ,int rowSpan, int colSpan){
+    //     ui->tableView->setSpan(row,col,rowSpan,colSpan);
+    // });
 
     connect(saveDbAction,&QAction::triggered,this,[this](){
         m_model->savetoDb("cellTable");
@@ -78,57 +97,104 @@ mergeTable::mergeTable(QWidget *parent)
 
         qDebug () << top<<left<<width<<height;
         m_model->merge(top,left,width,height);
-        ui->tableView->setSpan(top,left,height,width);
+        // ui->tableView->setSpan(top,left,height,width);
     });
 
     connect(removeColAction,&QAction::triggered,this,[this]{
         auto selectIndexes = ui->tableView->selectionModel()->selectedIndexes();
+        QSet<int> temp;
         for(auto &index: selectIndexes)
         {
             //remove selectCols
             auto col = index.column();
+            temp.insert(col);
+        }
+
+        for(auto col:temp)
+        {
             m_model->removeColumn_(col);
         }
     });
 
-    connect(insertColAction,&QAction::triggered,this,[this]{
+    connect(insertColFrontAction,&QAction::triggered,this,[this]{
         auto selectIndexes = ui->tableView->selectionModel()->selectedIndexes();
-        int col = selectIndexes.first().column();
+        QSet<int> temp;
         for(auto &index: selectIndexes)
         {
-            //insertCol before the first select column
-            if(index.column() < col)
-                col = index.column();
+            temp.insert(index.column());
         }
-        m_model->insertColumn_(col);
+
+        auto minimum = std::min_element(temp.begin(),temp.end());
+        if(minimum != temp.end())
+        {
+            m_model->insertColumns_(*minimum,temp.size());
+        }
+    });
+
+    connect(insertColBackAction,&QAction::triggered,this,[this]{
+        auto selectIndexes = ui->tableView->selectionModel()->selectedIndexes();
+        QSet<int> temp;
+        for(auto &index: selectIndexes)
+        {
+            temp.insert(index.column());
+        }
+
+        auto maximum = std::max_element(temp.begin(),temp.end());
+        if(maximum != temp.end())
+        {
+            m_model->insertColumns_(*maximum+1,temp.size());
+        }
     });
 
     connect(removeRowAction,&QAction::triggered,this,[this]()
     {
         auto selectIndexes = ui->tableView->selectionModel()->selectedIndexes();
+        QSet<int> temp;
         for(auto &index: selectIndexes)
         {
             //remove selectRows
             auto row = index.row();
+            temp.insert(row);
+        }
+
+        for(auto row:temp)
+        {
             m_model->removeRow_(row);
         }
     });
-    connect(insertRowAction,&QAction::triggered,this,[this](){
+
+    connect(insertRowFrontAction,&QAction::triggered,this,[this](){
         auto selectIndexes = ui->tableView->selectionModel()->selectedIndexes();
-        int row = selectIndexes.first().row();
+        QSet<int> temp;
         for(auto &index: selectIndexes)
         {
-            //insertRow before the first select row
-            if(index.row() < row)
-                row = index.row();
+            temp.insert(index.row());
         }
-        m_model->insertRow_(row);
+        auto minimum = std::min_element(temp.begin(),temp.end());
+        if(minimum != temp.end())
+        {
+            m_model->insertRows_(*minimum,temp.size());
+        }
     });
 
-    // m_model->initTable("cellTable");
-    // m_model->loadFromDb("cellTable");
-    m_model->loadFromJson("data.json");
-    m_model->expandAll();
+    connect(insertRowBackAction,&QAction::triggered,this,[this](){
+        auto selectIndexes = ui->tableView->selectionModel()->selectedIndexes();
+        QSet<int> temp;
+        for(auto &index: selectIndexes)
+        {
+            temp.insert(index.row());
+        }
+        auto maxmimum = std::max_element(temp.begin(),temp.end());
+        if(maxmimum != temp.end())
+        {
+            m_model->insertRows_(*maxmimum+1,temp.size());
+        }
+    });
+
+    m_model->initTable("cellTable");
+    m_model->loadFromDb("cellTable");
+    // m_model->loadFromJson("data.json");
+    m_model->restoreTableMergeState();
 }
 
 mergeTable::~mergeTable()
