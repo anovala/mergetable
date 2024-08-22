@@ -23,6 +23,9 @@ mergeTable::mergeTable(QWidget *parent)
     auto undoAction = new QAction("undo",this);
     redoAction->setEnabled(false);
     undoAction->setEnabled(false);
+    redoAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_R));
+    undoAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Z));
+    ui->tableView->addActions({redoAction,undoAction});
 
     auto splitAction = new QAction("split",this);
     menu.addActions({mergeAction,removeRowAction,insertRowFrontAction,
@@ -194,7 +197,7 @@ mergeTable::mergeTable(QWidget *parent)
     m_model->initTable("cellTable");
     m_model->loadFromDb("cellTable");
     // m_model->loadFromJson("data.json");
-    m_model->restoreTableMergeState();
+    m_model->restoreTableMergeState(true);
 }
 
 mergeTable::~mergeTable()

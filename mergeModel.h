@@ -23,7 +23,7 @@ struct Cell{
 
 struct TableState {
     QList<Cell> cells;
-    QList<Cell> mergedCells;
+    QList<QPair<int,int>> mergedCells;
 };
 
 
@@ -43,7 +43,7 @@ public:
     bool loadFromDb(const QString& tableName);
     void savetoJson(const QString &fileName);
     void loadFromJson(const QString &fileName);
-    void restoreTableMergeState();
+    void restoreTableMergeState(bool init = false);
     void clearTableMergeState();
     void initTable(const QString& tableName);
     Cell* find(int row, int col);

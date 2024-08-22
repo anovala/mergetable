@@ -16,9 +16,6 @@ mergeModel::mergeModel(QObject *parent):QAbstractTableModel(parent)
     {
         qDebug() << "Falied to open database!"<<m_db.lastError().text() ;
     }
-
-    // initTable("cellTable");
-    // loadFromDb("cellTable");
 }
 
 int mergeModel::rowCount(const QModelIndex &parent) const
@@ -271,12 +268,21 @@ void mergeModel::loadFromJson(const QString &fileName)
 
 }
 
-void mergeModel::restoreTableMergeState()
+void mergeModel::restoreTableMergeState(bool init)
 {
-    for(auto &&cell:m_state.cells)
+    if(init)
     {
-        if(cell.colSpan > 1 || cell.rowSpan > 1)
-            emit mergeSig(cell.row,cell.col,cell.rowSpan,cell.colSpan);
+        for(auto &&cell:m_state.cells)
+        {
+            if(cell.colSpan > 1 || cell.rowSpan > 1)
+                m_state.mergedCells.append({cell.row,cell.col});
+        }
+    }
+    for(auto &&[row,col]:m_state.mergedCells)
+    {
+        auto cell = find(row,col);
+        if(cell)
+            emit mergeSig(cell->row,cell->col,cell->rowSpan,cell->colSpan);
     }
 
     emit dataChanged(index(0,0),index(rowCount()-1,columnCount()-1));
@@ -284,9 +290,11 @@ void mergeModel::restoreTableMergeState()
 
 void mergeModel::clearTableMergeState()
 {
-    for(auto &&cell:m_state.mergedCells)
+    for(auto &&[row,col]:m_state.mergedCells)
     {
-        emit mergeSig(cell.row,cell.col,1,1);
+        auto cell = find(row,col);
+        if(cell)
+            emit mergeSig(cell->row,cell->col);
     }
 }
 
@@ -347,11 +355,13 @@ void mergeModel::initTable(const QString &tableName)
             }
         }
     }
+    //use a deep copy, iterator maybe invalid
     m_db.commit();
     emit dataChanged(index(0,0),index(3,3));
     qDebug() << "Cells inserted into table successfully.";
 }
 
+//注意如果在操作返回值期间对容器进行修改，需要进行复制
 Cell *mergeModel::find(int row, int col)
 {
     auto it =std::find_if(m_state.cells.begin(),m_state.cells.end(),[row,col](const Cell&cell)
@@ -514,6 +524,7 @@ void mergeModel::undo()
     restoreTableMergeState();
     // emit dataChanged(index(0,0),index(rowCount()-1,columnCount()-1)) ;
     endResetModel();
+    printTable();
 
     emit enableRedo(true);
 }
@@ -529,7 +540,7 @@ void mergeModel::redo()
 
     beginResetModel();
     clearTableMergeState();
-    if(m_redoStack.size() >= MAXSTACKSIZE)
+    if(m_undoStack.size() >= MAXSTACKSIZE)
     {
         m_undoStack.pop_front();
     }
@@ -540,6 +551,8 @@ void mergeModel::redo()
     endResetModel();
 
     emit enableUndo(true);
+
+    printTable();
     // emit dataChanged(index(0,0),index(rowCount()-1, columnCount()-1));
 }
 
@@ -723,15 +736,21 @@ void mergeModel::insertColumns_(int col, int count)
 void mergeModel::split(int splitRow, int splitCol)
 {
     saveCurrentState();
-    auto cell = find(splitRow,splitCol);
+    //use a deep copy, iterator maybe invalid
+    Cell cell = *find(splitRow,splitCol);
     emit mergeSig(splitRow,splitCol);
-    m_state.mergedCells.removeAll(*cell);
+    QPair<int,int> temp_p= {splitRow,splitCol};
+    m_state.mergedCells.removeAll(temp_p);
+
+    qDebug() << "split row range: "<<cell.row << "to"<<cell.row+cell.rowSpan;
+    qDebug() << "split col range: "<<cell.col<<"to"<<cell.col+cell.colSpan;
 
     // beginResetModel();
-    for(int i = cell->row;i < cell->row+cell->rowSpan;i++)
+    for(int i = cell.row;i < cell.row+cell.rowSpan;i++)
     {
-        for(int j =cell->col;j < cell->colSpan + cell->col;j++)
+        for(int j =cell.col;j < cell.colSpan + cell.col;j++)
         {
+            qDebug() << "pos: "<<i<<","<<j;
             if(i == splitRow  && j == splitCol)
                 continue;
             Cell newCell;
@@ -739,12 +758,16 @@ void mergeModel::split(int splitRow, int splitCol)
             newCell.row = i;
             newCell.val = "Cell";
             m_state.cells.append(newCell);
+            qDebug().nospace() << "append new cell";
+            print(newCell);
         }
     }
     // endResetModel();
-    emit dataChanged(index(splitRow,splitCol),index(cell->rowSpan-1,cell->colSpan-1));
-    cell->rowSpan = 1;
-    cell->colSpan = 1;
+    emit dataChanged(index(splitRow,splitCol),index(cell.rowSpan-1,cell.colSpan-1));
+    cell.rowSpan = 1;
+    cell.colSpan = 1;
+
+    printTable();
 }
 
 void mergeModel::merge(int top, int left, int width, int height)
@@ -756,21 +779,15 @@ void mergeModel::merge(int top, int left, int width, int height)
         return;
     }
 
-    auto curCell = find(top,left);
-    if(!curCell)
+    auto curCellPtr = find(top,left);
+    if(!curCellPtr)
         return;
+    auto curCell = *curCellPtr;
 
     for(int row = top; row < top + height;row++)
     {
         for(int col = left; col < left + width;)
         {
-            if(row == top && col == left)
-            {
-                auto curCell = find(row,col);
-                col += curCell->colSpan;
-                continue;
-            }
-
             auto removeCell = find(row,col);
             if(removeCell)
             {
@@ -778,7 +795,8 @@ void mergeModel::merge(int top, int left, int width, int height)
                 if(removeCell->colSpan >1 || removeCell->rowSpan > 1)
                 {
                     emit mergeSig(removeCell->row,removeCell->col);
-                    m_state.mergedCells.removeAll(*removeCell);
+                    QPair<int,int> temp_p = {removeCell->row,removeCell->col};
+                    m_state.mergedCells.removeAll(temp_p);
                 }
                 qDebug().nospace() << "remove: ";
                 print(*removeCell);
@@ -788,12 +806,13 @@ void mergeModel::merge(int top, int left, int width, int height)
         }
     }
 
-    curCell->colSpan = width;
-    curCell->rowSpan = height;
-    emit mergeSig(curCell->row,curCell->col,curCell->rowSpan,curCell->colSpan);
+    curCell.colSpan = width;
+    curCell.rowSpan = height;
+    m_state.cells.append(curCell);
+    m_state.mergedCells.append({curCell.row,curCell.col});
+    emit mergeSig(curCell.row,curCell.col,curCell.rowSpan,curCell.colSpan);
     emit dataChanged(index(top,left),index(top+height-1,left+width-1),{Qt::DisplayRole});
 
-    m_state.mergedCells.append(*curCell);
     printTable();
 }
 
