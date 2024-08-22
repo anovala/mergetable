@@ -24,6 +24,8 @@ struct Cell{
 struct TableState {
     QList<Cell> cells;
     QList<QPair<int,int>> mergedCells;
+    bool firstHeaderRow = false;
+    bool firstHeaderCol = false;
 };
 
 class mergeModel : public QAbstractTableModel{
@@ -46,6 +48,8 @@ public:
     void clearTableMergeState();
     void initTable(const QString& tableName);
     Cell* find(int row, int col);
+    void setFirstRowHeader(bool b);
+    void setFirstColHeader(bool b);
 
 private:
     void increaseCol(int col, int rowBegin,int totalRow);
@@ -84,7 +88,6 @@ signals:
 
 private:
     TableState m_state;
-    // QList<Cell> m_cells;
     QStack<TableState> m_undoStack;
     QStack<TableState> m_redoStack;
     QSqlDatabase m_db;

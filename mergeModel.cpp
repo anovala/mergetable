@@ -375,6 +375,16 @@ Cell *mergeModel::find(int row, int col)
         return nullptr;
 }
 
+void mergeModel::setFirstRowHeader(bool b)
+{
+    m_state.firstHeaderRow = b;
+}
+
+void mergeModel::setFirstColHeader(bool b)
+{
+    m_state.firstHeaderCol = b;
+}
+
 void mergeModel::increaseCol(int col, int rowBegin, int totalRow)
 {
     //从当前列最后一个递增起

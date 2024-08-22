@@ -72,6 +72,7 @@ void mergeTable::createConnection()
         {
             m_delegate->removeColoredRow(0);
         }
+        m_model->setFirstRowHeader(b);
     });
 
     connect(firstCol, &QAction::triggered,this,[this](bool b){
@@ -80,6 +81,7 @@ void mergeTable::createConnection()
         }else{
             m_delegate->removeColoredCol(0);
         }
+        m_model->setFirstColHeader(b);
     });
 
     connect(m_model,&mergeModel::enableRedo,this,[redoAction](bool b){
